@@ -1,0 +1,254 @@
+---
+title: "Fitting population growth by maximum-likelihood"
+number-sections: true
+format:
+  html:
+    toc: true
+    toc-depth: 4
+editor: source
+editor_options: 
+  chunk_output_type: console
+#bibliography: references.bib
+#csl: the-american-naturalist.csl
+---
+
+```{r include = FALSE, eval = FALSE}
+knitr::purl("malarone.qmd", "tmp.R", documentation = FALSE)
+source("tmp.R")
+file.remove("tmp.R")
+
+add_nojekyll <- function() {
+  file <- ".nojekyll"
+  file.create(file)
+  gert::git_add(file)
+  gert::git_commit("Adding the .nojekyll file")
+  gert::git_push()
+}
+```
+
+```{r include = FALSE}
+par2 <- function(...) par(..., mgp = c(1.5, .5, 0), bty = "n")
+
+knitr::knit_hooks$set(
+  margin1 = function(before, options, envir) {
+    if (before) par2(plt = c(.105, .97, .15, .95)) else NULL
+  })
+
+eps <- .8
+knitr::opts_chunk$set(margin1    = TRUE,
+                      fig.retina = 2,
+                      fig.align  = "center",
+                      fig.height = eps * 5, # default is 5
+                      fig.width  = eps * 7) # default is 7 and maximum possible is 8.3
+```
+
+```{r include = FALSE}
+path2data <- paste0("/Users/", Sys.getenv("USER"), "/Library/CloudStorage/",
+                    "OneDrive-OxfordUniversityClinicalResearchUnit/",
+                    "GitHub/choisy/logistic_growth/")
+path2cache <- paste0(path2data, "cache/")
+if (! dir.exists(path2cache)) dir.create(path2cache)
+make_path <- function(x) paste0(path2cache, x)
+file_exists <- function(x) file.exists(make_path(x))
+readRDS2 <- function(x) readRDS(make_path(x))
+saveRDS2 <- function(object, file) saveRDS(object, make_path(file))
+```
+
+```{r}
+library(dplyr)
+library(purrr)
+#library(furrr)
+library(tidyr)
+library(bbmle)
+library(mvtnorm)
+#plan(multisession)
+```
+
+Tuning `lines()`:
+
+```{r}
+lines2 <- function(...) lines(..., lwd = 2)
+```
+
+Tuning `polygon()`:
+
+```{r}
+polygon2 <- function(x, y1, y2, ...) {
+  polygon(c(x, rev(x)), c(y1, rev(y2)), border = NA, ...)
+}
+```
+
+The data:
+
+```{r}
+counts <- tibble(t = c(1909, 1965, 1986, 1997, 2009, 2023),
+                 N = c(52, 3000, 5000, 9000, 15000, 20000))
+```
+
+A figure of the data:
+
+```{r data_only}
+plot_data <- function() {
+  with(counts, plot(t, N, type = "n", xlab = NA, ylab = "population size"))
+  abline(v = seq(1910, 2020, 10), col = "grey")
+  abline(h = seq(0, 20000, 2500), col = "grey")
+  with(counts, points(t, N, col = 4, pch = 19))
+}
+
+plot_data()
+```
+
+The logistic growth process:
+
+$$
+\mu(t) = \frac{K}{1 + e^{-(t - t_0)r}}
+$$
+
+where $\mu$ is the expected population size, $t$ is time in years, $K$ is the
+carrying capacity, $r$ is the annual per capita growth rate, and $t_0$ is the time
+where $\mu(t_0) = K / 2$. The corresponding R code:
+
+```{r}
+logistic <- function(t, K, r, t0) {
+  K / (1 + exp(-r * (t - t0)))
+}
+```
+
+The observation process:
+
+$$
+N(t) \sim \mbox{Poisson}\left(\mu(t)\right)
+$$
+
+where $N$ is the observed population size. Thus, for given values of $r$, $K$ and
+$t_0$, the likelihood function reads:
+
+$$
+L = \prod_{i = 1}^n \frac{\mu(t)^{N_t}e^{-\mu(t)}}{N_t!}
+$$
+
+where $N_t$ is the observed population size at time $t$ and $n$ is the number of data
+points in the data set. The corresponding R code for the minus log-likelihood is:
+
+```{r}
+mLL <- function(K, r, t0) {
+  - sum(dpois(counts$N, logistic(counts$t, K, r, t0), log = TRUE))
+}
+```
+
+The fitting the model to data by maximizing the likelihood:
+
+```{r}
+fit <- mle2(mLL, list(K = max(counts$N), r = .1, t0 = median(counts$t)), "Nelder-Mead")
+```
+
+The summary statistics of the model fit:
+
+```{r}
+summary(fit)
+```
+
+The estimations of the model parameters:
+
+```{r}
+(pars <- coef(fit))
+```
+
+The 95% confidence interval of the model parameters:
+
+```{r}
+confint(fit)
+```
+
+As an null alternative, let's now consider an exponential growth. This can be achieved
+by fixing the carrying capacity $K$ to a very large value:
+
+```{r}
+fit0 <- mle2(mLL, list(r = .05, t0 = 1900), "Nelder-Mead", fixed = list(K = 1e6))
+```
+
+the summary statistics of which is:
+
+```{r}
+summary(fit0)
+```
+
+the estimations of the parameters:
+
+```{r}
+(pars0 <- coef(fit0))
+```
+
+where we can see that the growth rate estimate $r$ is lower for exponential model than
+for the logistic one. The comparison of models shows that the logistic model is a
+better model than the exponential one:
+
+```{r}
+anova(fit0, fit)
+```
+
+Let's visually compare the models and the data:
+
+```{r data_and_model}
+t_new <- with(counts, seq(min(t), max(t), le = 512))
+pred_mu0 <- with(as.list(pars0), logistic(t_new, K, r, t0))
+pred_mu <- with(as.list(pars), logistic(t_new, K, r, t0))
+
+plot_data()
+lines2(t_new, pred_mu0, col = 3)
+lines2(t_new, pred_mu, col = 2)
+
+legend("topleft", c("data", "exponential", "logistic"), col = c(4, 3, 2),
+       lty = c(NA, 1, 1), lwd = c(NA, 2, 2), pch = c(19, NA, NA))
+```
+
+Adding confidence and prediction intervals on the logistic model:
+
+```{r}
+pred_ci <- function(fit, B = 1000, ci = .95) {
+  lower <- (1 - ci) / 2
+  upper <- 1 - lower
+  vc_mat <- vcov(fit)
+  out <- B |>
+    rmvnorm(pars0[rownames(vc_mat)], vc_mat) |> 
+    as_tibble() |>
+    group_split(row_number(), .keep = FALSE) |> 
+    map_dfc(~ with(.x, logistic(t_new, 1e6, r, t0))) |> 
+  #  future_map_dfc(~ with(.x, logistic(t_new, 1e6, r, t0))) |> 
+    rowwise() |> 
+    mutate(q = list(quantile(c_across(everything()), probs = c(lower, .5, upper))),
+           .keep = "none") |> 
+    ungroup() |> 
+    unnest_wider(q)
+  attr(out, "lower") <- lower
+  out
+}
+```
+
+```{r}
+plot_pred <- function(x, color = 3, alpha = .5) {
+  q <- attr(pred0, "lower")
+  polygon2(t_new, x[[1]], x[[3]], col = 3)
+  polygon2(t_new, qpois(q, x[[1]]), qpois(q, x[[3]], FALSE),
+           col = adjustcolor(color, alpha))
+}
+```
+
+```{r eval = FALSE}
+pred0 <- pred_ci(fit0)
+```
+
+```{r include = FALSE, warning = FALSE}
+if (file_exists("pred0.rds")) {
+  pred0 <- readRDS2("pred0.rds")
+} else {
+  pred0 <- pred_ci(fit0)
+  saveRDS2(pred0, "pred0.rds")
+}
+```
+
+```{r}
+plot_data()
+plot_pred(pred0)
+```
+
