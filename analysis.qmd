@@ -85,17 +85,27 @@ counts <- tibble(t = c(1909, 1965, 1986, 1997, 2009, 2023),
                  N = c(52, 3000, 5000, 9000, 15000, 20000))
 ```
 
-A figure of the data:
+Plot the grid of the data:
 
-```{r data_only}
-plot_data <- function() {
+```{r}
+plot_grid <- function() {
   with(counts, plot(t, N, type = "n", xlab = NA, ylab = "population size"))
   abline(v = seq(1910, 2020, 10), col = "grey")
   abline(h = seq(0, 20000, 2500), col = "grey")
-  with(counts, points(t, N, col = 4, pch = 19))
 }
+```
 
-plot_data()
+Adds points:
+
+```{r}
+add_data_points <- function() with(counts, points(t, N, col = 4, pch = 19))
+```
+
+A figure of the data:
+
+```{r data_only}
+plot_grid()
+add_data_points()
 ```
 
 The logistic growth process:
@@ -194,7 +204,8 @@ t_new <- with(counts, seq(min(t), max(t), le = 512))
 pred_mu0 <- with(as.list(pars0), logistic(t_new, K, r, t0))
 pred_mu <- with(as.list(pars), logistic(t_new, K, r, t0))
 
-plot_data()
+plot_grid()
+add_data_points()
 lines2(t_new, pred_mu0, col = 3)
 lines2(t_new, pred_mu, col = 2)
 
@@ -227,8 +238,8 @@ pred_ci <- function(fit, B = 1000, ci = .95) {
 
 ```{r}
 plot_pred <- function(x, color = 3, alpha = .5) {
-  q <- attr(pred0, "lower")
-  polygon2(t_new, x[[1]], x[[3]], col = 3)
+  q <- attr(x, "lower")
+  polygon2(t_new, x[[1]], x[[3]], col = color)
   polygon2(t_new, qpois(q, x[[1]]), qpois(q, x[[3]], FALSE),
            col = adjustcolor(color, alpha))
 }
@@ -247,8 +258,28 @@ if (file_exists("pred0.rds")) {
 }
 ```
 
+```{r eval = FALSE}
+pred <- pred_ci(fit)
+```
+
+```{r include = FALSE, warning = FALSE}
+if (file_exists("pred.rds")) {
+  pred <- readRDS2("pred.rds")
+} else {
+  pred <- pred_ci(fit)
+  saveRDS2(pred, "pred.rds")
+}
+```
+
 ```{r}
-plot_data()
+plot_grid()
 plot_pred(pred0)
+add_data_points()
+```
+
+```{r}
+plot_grid()
+plot_pred(pred, 2)
+add_data_points()
 ```
 
